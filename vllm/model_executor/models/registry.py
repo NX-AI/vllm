@@ -2,6 +2,7 @@
 Whenever you add an architecture to this page, please also update
 `tests/models/registry.py` with example HuggingFace models for it.
 """
+
 import importlib
 import os
 import pickle
@@ -11,17 +12,31 @@ import tempfile
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from functools import lru_cache
-from typing import (AbstractSet, Callable, Dict, List, Optional, Tuple, Type,
-                    TypeVar, Union)
+from typing import (
+    AbstractSet,
+    Callable,
+    Dict,
+    List,
+    Optional,
+    Tuple,
+    Type,
+    TypeVar,
+    Union,
+)
 
 import cloudpickle
 import torch.nn as nn
 
 from vllm.logger import init_logger
 
-from .interfaces import (has_inner_state, is_attention_free, is_hybrid,
-                         supports_cross_encoding, supports_multimodal,
-                         supports_pp)
+from .interfaces import (
+    has_inner_state,
+    is_attention_free,
+    is_hybrid,
+    supports_cross_encoding,
+    supports_multimodal,
+    supports_pp,
+)
 from .interfaces_base import is_text_generation_model
 
 logger = init_logger(__name__)
@@ -86,6 +101,7 @@ _TEXT_GENERATION_MODELS = {
     "Phi3ForCausalLM": ("phi3", "Phi3ForCausalLM"),
     "Phi3SmallForCausalLM": ("phi3_small", "Phi3SmallForCausalLM"),
     "PhiMoEForCausalLM": ("phimoe", "PhiMoEForCausalLM"),
+    "xLSTMForCausalLM": ("xlstm", "xLSTMForCausalLM"),
     # QWenLMHeadModel supports multimodal
     "Qwen2ForCausalLM": ("qwen2", "Qwen2ForCausalLM"),
     "Qwen2MoeForCausalLM": ("qwen2_moe", "Qwen2MoeForCausalLM"),
@@ -216,7 +232,6 @@ class _ModelInfo:
 
 
 class _BaseRegisteredModel(ABC):
-
     @abstractmethod
     def inspect_model_cls(self) -> _ModelInfo:
         raise NotImplementedError
@@ -254,13 +269,15 @@ class _LazyRegisteredModel(_BaseRegisteredModel):
     """
     Represents a model that has not been imported in the main process.
     """
+
     module_name: str
     class_name: str
 
     # Performed in another process to avoid initializing CUDA
     def inspect_model_cls(self) -> _ModelInfo:
         return _run_in_subprocess(
-            lambda: _ModelInfo.from_model_cls(self.load_model_cls()))
+            lambda: _ModelInfo.from_model_cls(self.load_model_cls())
+        )
 
     def load_model_cls(self) -> Type[nn.Module]:
         mod = importlib.import_module(self.module_name)
@@ -273,12 +290,12 @@ def _try_load_model_cls(
     model: _BaseRegisteredModel,
 ) -> Optional[Type[nn.Module]]:
     from vllm.platforms import current_platform
+
     current_platform.verify_model_arch(model_arch)
     try:
         return model.load_model_cls()
     except Exception:
-        logger.exception("Error in loading model architecture '%s'",
-                         model_arch)
+        logger.exception("Error in loading model architecture '%s'", model_arch)
         return None
 
 
@@ -290,8 +307,9 @@ def _try_inspect_model_cls(
     try:
         return model.inspect_model_cls()
     except Exception:
-        logger.exception("Error in inspecting model architecture '%s'",
-                         model_arch)
+        logger.exception(
+            "Error in inspecting model architecture '%s'", model_arch
+        )
         return None
 
 
@@ -322,8 +340,10 @@ class _ModelRegistry:
         if model_arch in self.models:
             logger.warning(
                 "Model architecture %s is already registered, and will be "
-                "overwritten by the new model class %s.", model_arch,
-                model_cls)
+                "overwritten by the new model class %s.",
+                model_arch,
+                model_cls,
+            )
 
         if isinstance(model_cls, str):
             split_str = model_cls.split(":")
@@ -343,14 +363,15 @@ class _ModelRegistry:
         if any(arch in all_supported_archs for arch in architectures):
             raise ValueError(
                 f"Model architectures {architectures} failed "
-                "to be inspected. Please check the logs for more details.")
+                "to be inspected. Please check the logs for more details."
+            )
 
         raise ValueError(
             f"Model architectures {architectures} are not supported for now. "
-            f"Supported architectures: {all_supported_archs}")
+            f"Supported architectures: {all_supported_archs}"
+        )
 
-    def _try_load_model_cls(self,
-                            model_arch: str) -> Optional[Type[nn.Module]]:
+    def _try_load_model_cls(self, model_arch: str) -> Optional[Type[nn.Module]]:
         if model_arch not in self.models:
             return None
 
@@ -456,13 +477,15 @@ class _ModelRegistry:
         return model_cls.is_hybrid
 
 
-ModelRegistry = _ModelRegistry({
-    model_arch: _LazyRegisteredModel(
-        module_name=f"vllm.model_executor.models.{mod_relname}",
-        class_name=cls_name,
-    )
-    for model_arch, (mod_relname, cls_name) in _VLLM_MODELS.items()
-})
+ModelRegistry = _ModelRegistry(
+    {
+        model_arch: _LazyRegisteredModel(
+            module_name=f"vllm.model_executor.models.{mod_relname}",
+            class_name=cls_name,
+        )
+        for model_arch, (mod_relname, cls_name) in _VLLM_MODELS.items()
+    }
+)
 
 _T = TypeVar("_T")
 
@@ -481,15 +504,17 @@ def _run_in_subprocess(fn: Callable[[], _T]) -> _T:
         returned = subprocess.run(
             [sys.executable, "-m", "vllm.model_executor.models.registry"],
             input=input_bytes,
-            capture_output=True)
+            capture_output=True,
+        )
 
         # check if the subprocess is successful
         try:
             returned.check_returncode()
         except Exception as e:
             # wrap raised exception to provide more information
-            raise RuntimeError(f"Error raised in subprocess:\n"
-                               f"{returned.stderr.decode()}") from e
+            raise RuntimeError(
+                f"Error raised in subprocess:\n" f"{returned.stderr.decode()}"
+            ) from e
 
         with open(output_filepath, "rb") as f:
             return pickle.load(f)
@@ -498,6 +523,7 @@ def _run_in_subprocess(fn: Callable[[], _T]) -> _T:
 def _run() -> None:
     # Setup plugins
     from vllm.plugins import load_general_plugins
+
     load_general_plugins()
 
     fn, output_file = pickle.loads(sys.stdin.buffer.read())
